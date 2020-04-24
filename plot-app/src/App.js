@@ -111,55 +111,17 @@ class App extends React.Component {
     this.covidDeaths = await getData(covidDeathsCSV);
     this.covidRecovered = await getData(covidRecoveredCSV);
     this.populationData = await getData(populationCSV);
-    
-    const australiaCovidCases = this.covidCases.filter(filterCountry, this.state.country);
-    const australiaCovidDeaths = this.covidDeaths.filter(filterCountry, this.state.country);
-    const australiaCovidRecovered = this.covidRecovered.filter(filterCountry, this.state.country);
-    const population = this.populationData.filter(filterCountry, this.state.country);
-    const {trace1, trace2, trace3, trace4, layout} = this.state;
-    let m = moment();
 
     this.covidHeader = await getCovidHeader(covidCasesCSV);
     this.covidHeader = this.covidHeader[0];
-
-    if (population) {
-      this.state.population = population[0]["Population"];
-    }
 
     for (let i = 0; i < this.covidCases.length; i++) {
       if (this.covidCases[i]['Country/Region']) {
         this.countries.add(this.covidCases[i]['Country/Region']);
       }
     }
-
-    for (let i = 0; i < this.covidHeader.length; i++) {
-      if (i >= 4) {
-        let casesSum = 0;
-        let deathsSum = 0;
-        let recoveredSum = 0;
-        const date = new Date(this.covidHeader[i]);
-
-        m = moment(date.toISOString());
-        trace1.x.push(m.format("YYYY-MM-DD"));
-        trace2.x.push(m.format("YYYY-MM-DD"));
-        trace3.x.push(m.format("YYYY-MM-DD"));
-        trace4.x.push(m.format("YYYY-MM-DD"));
-
-        for (let j = 0; j < australiaCovidCases.length; j++){
-          casesSum += parseInt(australiaCovidCases[j][this.covidHeader[i]]);
-          deathsSum += parseInt(australiaCovidDeaths[j][this.covidHeader[i]]);
-          recoveredSum += parseInt(australiaCovidRecovered[j][this.covidHeader[i]]);
-        }
-
-        trace1.y.push(casesSum);
-        trace2.y.push(deathsSum);
-        trace3.y.push(recoveredSum);
-        trace4.y.push(recoveredSum + deathsSum);
-      }
-    }
-
-    this.setState({ revision: this.state.revision + 1 });
-    layout.datarevision = this.state.revision + 1;
+    
+    this.setCountryTraces();
   }
 
   async setCountryTraces() {
