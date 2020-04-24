@@ -36,6 +36,18 @@ function filterCountry(data) {
   return data['Country/Region'] === this;
 }
 
+function newTrace(name, color) {
+  return {
+    x: [],
+    y: [],
+    name,
+    line: {
+      color,
+      width: 3
+    }
+  };
+}
+
 class App extends React.Component {
   constructor(props) {
     super(props);
@@ -49,42 +61,12 @@ class App extends React.Component {
     this.state = {
       country: "Australia",
       population: 0,
-      trace1: {
-        x: [],
-        y: [],
-        name: 'Cases',
-        line: {
-          color: 'rgb(61, 3, 252)',
-          width: 3
-        }
-      },
-      trace2: {
-        x: [],
-        y: [],
-        name: 'Deaths',
-        line: {
-          color: 'rgb(189, 2, 2)',
-          width: 3
-        }
-      },
-      trace3: {
-        x: [],
-        y: [],
-        name: 'Recovered',
-        line: {
-          color: 'rgb(5, 237, 63)',
-          width: 3
-        }
-      },
-      trace4: {
-        x: [],
-        y: [],
-        name: 'Recovered + Deaths',
-        line: {
-          color: 'rgb(255, 145, 0)',
-          width: 3
-        }
-      },
+      traces: [
+        newTrace("Cases", "purple"),
+        newTrace("Deaths", "red"),
+        newTrace("Recovered", "green"),
+        newTrace("Recovered + Deaths", "orange")
+      ],
       layout: {
         datarevision: 0,
         width: 900,
@@ -125,7 +107,7 @@ class App extends React.Component {
   }
 
   async setCountryTraces() {
-    const {trace1, trace2, trace3, trace4, layout} = this.state;
+    const {traces, layout} = this.state;
     const filteredCovidCases = this.covidCases.filter(filterCountry, this.state.country);
     const filteredCovidDeaths = this.covidDeaths.filter(filterCountry, this.state.country);
     const filteredCovidRecovered = this.covidRecovered.filter(filterCountry, this.state.country);
@@ -136,14 +118,10 @@ class App extends React.Component {
       this.state.population = population[0]["Population"];
     }
 
-    trace1.x = [];
-    trace2.x = [];
-    trace3.x = [];
-    trace4.x = [];
-    trace1.y = [];
-    trace2.y = [];
-    trace3.y = [];
-    trace4.y = [];
+    for (const trace of traces) {
+      trace.x = [];
+      trace.y= [];
+    }
 
     for (let i = 0; i < this.covidHeader.length; i++) {
       if (i >= 4) {
@@ -153,10 +131,10 @@ class App extends React.Component {
         const date = new Date(this.covidHeader[i]);
 
         m = moment(date.toISOString());
-        trace1.x.push(m.format("YYYY-MM-DD"));
-        trace2.x.push(m.format("YYYY-MM-DD"));
-        trace3.x.push(m.format("YYYY-MM-DD"));
-        trace4.x.push(m.format("YYYY-MM-DD"));
+        const formattedDate = m.format("YYYY-MM-DD");
+        for (const trace of traces) {
+          trace.x.push(formattedDate);
+        }
 
         for (let j = 0; j < filteredCovidCases.length; j++){
           casesSum += parseInt(filteredCovidCases[j][this.covidHeader[i]]);
@@ -164,10 +142,10 @@ class App extends React.Component {
           recoveredSum += parseInt(filteredCovidRecovered[j][this.covidHeader[i]]);
         }
 
-        trace1.y.push(casesSum);
-        trace2.y.push(deathsSum);
-        trace3.y.push(recoveredSum);
-        trace4.y.push(recoveredSum + deathsSum);
+        traces[0].y.push(casesSum);
+        traces[1].y.push(deathsSum);
+        traces[2].y.push(recoveredSum);
+        traces[3].y.push(recoveredSum + deathsSum);
       }
     }
 
@@ -199,12 +177,7 @@ class App extends React.Component {
     return (
       <div>
         <Plot
-          data={[
-            this.state.trace1,
-            this.state.trace2,
-            this.state.trace3,
-            this.state.trace4,
-          ]}
+          data={this.state.traces}
           layout={this.state.layout}
           revision={this.state.revision}
         />
