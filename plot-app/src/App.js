@@ -3,6 +3,7 @@ import Plotly from 'plotly.js';
 import createPlotlyComponent from 'react-plotly.js/factory';
 import Papa from 'papaparse';
 import moment from 'moment';
+import { simulate, sir } from './sir';
 
 const Plot = createPlotlyComponent(Plotly);
 
@@ -63,9 +64,12 @@ class App extends React.Component {
       population: 0,
       traces: [
         newTrace("Cases", "purple"),
-        newTrace("Deaths", "red"),
+        newTrace("Deaths", "orange"),
+        newTrace("Recovered", "lime"),
+        newTrace("Recovered + Deaths", "grey"),
+        newTrace("Susceptible", "blue"),
+        newTrace("Infected", "red"),
         newTrace("Recovered", "green"),
-        newTrace("Recovered + Deaths", "orange")
       ],
       layout: {
         datarevision: 0,
@@ -112,7 +116,6 @@ class App extends React.Component {
     const filteredCovidDeaths = this.covidDeaths.filter(filterCountry, this.state.country);
     const filteredCovidRecovered = this.covidRecovered.filter(filterCountry, this.state.country);
     const population = this.populationData.filter(filterCountry, this.state.country);
-    let m = moment();
 
     if (population) {
       this.state.population = population[0]["Population"];
@@ -120,34 +123,71 @@ class App extends React.Component {
 
     for (const trace of traces) {
       trace.x = [];
-      trace.y= [];
+      trace.y = [];
     }
 
-    for (let i = 0; i < this.covidHeader.length; i++) {
-      if (i >= 4) {
-        let casesSum = 0;
-        let deathsSum = 0;
-        let recoveredSum = 0;
-        const date = new Date(this.covidHeader[i]);
+    const cases = [];
+    for (const header of this.covidHeader.slice(4)) {
+      let casesSum = 0;
+      let deathsSum = 0;
+      let recoveredSum = 0;
 
-        m = moment(date.toISOString());
-        const formattedDate = m.format("YYYY-MM-DD");
-        for (const trace of traces) {
-          trace.x.push(formattedDate);
-        }
-
-        for (let j = 0; j < filteredCovidCases.length; j++){
-          casesSum += parseInt(filteredCovidCases[j][this.covidHeader[i]]);
-          deathsSum += parseInt(filteredCovidDeaths[j][this.covidHeader[i]]);
-          recoveredSum += parseInt(filteredCovidRecovered[j][this.covidHeader[i]]);
-        }
-
-        traces[0].y.push(casesSum);
-        traces[1].y.push(deathsSum);
-        traces[2].y.push(recoveredSum);
-        traces[3].y.push(recoveredSum + deathsSum);
+      const m = moment(header, "MM/DD/YY");
+      const formattedDate = m.format("YYYY-MM-DD");
+      for (const trace of traces.slice(0, 4)) {
+        trace.x.push(formattedDate);
       }
+
+      let casesHere = 0;
+      for (let j = 0; j < filteredCovidCases.length; j++){
+        casesHere += parseInt(filteredCovidCases[j][header]);
+
+        casesSum += parseInt(filteredCovidCases[j][header]);
+        deathsSum += parseInt(filteredCovidDeaths[j][header]);
+        recoveredSum += parseInt(filteredCovidRecovered[j][header]);
+      }
+
+      cases.push(casesHere);
+
+      traces[0].y.push(casesSum);
+      traces[1].y.push(deathsSum);
+      traces[2].y.push(recoveredSum);
+      traces[3].y.push(recoveredSum + deathsSum);
     }
+
+    const pop = Number(population[0].Population);
+
+    const t0 = traces[0];
+    const t3 = traces[3];
+
+    const lrCases = t0.y[t0.y.length - 1];
+    const lrRes = t3.y[t3.y.length - 1];
+
+    const S0 = pop - lrCases;
+    const R0 = lrRes;
+    const I0 = pop - (S0 + R0);
+    
+    const init = [S0, I0, R0].map(x => x / pop);
+    
+    const sol = simulate(sir(), 0, init, 1, 365);
+    console.log(sol);
+
+    const getDate = x => {
+      const start = new Date(t0.x[t0.x.length - 1]);
+      const date = new Date(start.getTime() + x * (24 * 60 * 60 * 1000));
+      const m = moment(date.toISOString());
+      return m.format("YYYY-MM-DD");
+    };
+
+    const i0 = traces.indexOf(traces.find(trace => trace.name === "Susceptible"));
+    sol.y.forEach((ys, x) => {
+      for (let i = i0+1; i < traces.length; i++) {
+        traces[i].x.push(getDate(x));
+        traces[i].y.push(Math.round(ys[i - i0] * pop));
+      }
+    });
+
+    console.log(traces);
 
     layout.title = `COVID-19 ${this.state.country}`;
     await this.setState({ revision: this.state.revision + 1 });
