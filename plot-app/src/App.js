@@ -3,10 +3,25 @@ import Plotly from 'plotly.js';
 import createPlotlyComponent from 'react-plotly.js/factory';
 import Papa from 'papaparse';
 import moment from 'moment';
+import Form from 'react-bootstrap/Form';
+import Button from 'react-bootstrap/Button';
+import Col from 'react-bootstrap/Col';
 import { simulate, sir } from './sir';
 
 const Plot = createPlotlyComponent(Plotly);
 
+// Root Mean Square Error function
+function RMSE(predicted, actual) {
+  let total = 0;
+
+  for (let i = 0; i < actual.length; i++) {
+    total = Math.pow(predicted[i] - actual[i], 2);
+  }
+
+  return Math.sqrt(total / actual.length);
+}
+
+// Get data from CSV
 async function getData(dataCSV) {
   return new Promise(resolve => {
     Papa.parse(dataCSV, {
@@ -20,7 +35,8 @@ async function getData(dataCSV) {
   });
 };
 
-async function getCovidHeader(dataCSV) {
+// Get Header from CSV
+async function getHeader(dataCSV) {
   return new Promise(resolve => {
     Papa.parse(dataCSV, {
       preview: 1,
@@ -33,10 +49,12 @@ async function getCovidHeader(dataCSV) {
   });
 };
 
+// Filter by Country
 function filterCountry(data) {
   return data['Country/Region'] === this;
 }
 
+// Create new trace with given name and colour
 function newTrace(name, color) {
   return {
     x: [],
@@ -61,7 +79,10 @@ class App extends React.Component {
 
     this.state = {
       country: "Australia",
+      proportion: 0.001,
+      explicitPolulation: false,
       population: 0,
+      susceptiplePop: 0,
       traces: [
         newTrace("Cases", "purple"),
         newTrace("Deaths", "orange"),
@@ -82,34 +103,39 @@ class App extends React.Component {
 
     this.handleCountryChange = this.handleCountryChange.bind(this);
     this.handleCountrySubmit = this.handleCountrySubmit.bind(this);
+    this.handleProportionChange = this.handleProportionChange.bind(this);
+    this.handleProportionSubmit = this.handleProportionSubmit.bind(this);
+    this.handleExplicitPopChange = this.handleExplicitPopChange.bind(this);
+    this.handleExplicitPopSubmit = this.handleExplicitPopSubmit.bind(this);
   }
 
+  // Set values for intial state to Australia
   async componentDidMount() {
-    // const covidCasesCSV = "https://data.humdata.org/hxlproxy/api/data-preview.csv?url=https%3A%2F%2Fraw.githubusercontent.com%2FCSSEGISandData%2FCOVID-19%2Fmaster%2Fcsse_covid_19_data%2Fcsse_covid_19_time_series%2Ftime_series_covid19_confirmed_global.csv&filename=time_series_covid19_confirmed_global.csv";
-    // const covidDeathsCSV = "https://data.humdata.org/hxlproxy/api/data-preview.csv?url=https%3A%2F%2Fraw.githubusercontent.com%2FCSSEGISandData%2FCOVID-19%2Fmaster%2Fcsse_covid_19_data%2Fcsse_covid_19_time_series%2Ftime_series_covid19_deaths_global.csv&filename=time_series_covid19_deaths_global.csv";
-    // const covidRecoveredCSV = "https://data.humdata.org/hxlproxy/api/data-preview.csv?url=https%3A%2F%2Fraw.githubusercontent.com%2FCSSEGISandData%2FCOVID-19%2Fmaster%2Fcsse_covid_19_data%2Fcsse_covid_19_time_series%2Ftime_series_covid19_recovered_global.csv&filename=time_series_covid19_recovered_global.csv";
     const covidCasesCSV = require("./datasets/covid_cases.csv");
     const covidDeathsCSV = require("./datasets/covid_deaths.csv");
     const covidRecoveredCSV = require("./datasets/covid_recovered.csv");
     const populationCSV = require("./datasets/population.csv");
 
+    // Get data from CSVs
     this.covidCases = await getData(covidCasesCSV);
     this.covidDeaths = await getData(covidDeathsCSV);
     this.covidRecovered = await getData(covidRecoveredCSV);
     this.populationData = await getData(populationCSV);
-
-    this.covidHeader = await getCovidHeader(covidCasesCSV);
+    this.covidHeader = await getHeader(covidCasesCSV);
     this.covidHeader = this.covidHeader[0];
 
+    // Get all countries/regions
     for (let i = 0; i < this.covidCases.length; i++) {
       if (this.covidCases[i]['Country/Region']) {
         this.countries.add(this.covidCases[i]['Country/Region']);
       }
     }
     
+    // Set trace for Australia
     this.setCountryTraces();
   }
 
+  // Set all traces for country in current state
   async setCountryTraces() {
     const {traces, layout} = this.state;
     const filteredCovidCases = this.covidCases.filter(filterCountry, this.state.country);
@@ -117,8 +143,14 @@ class App extends React.Component {
     const filteredCovidRecovered = this.covidRecovered.filter(filterCountry, this.state.country);
     const population = this.populationData.filter(filterCountry, this.state.country);
 
+    console.log(population);
+
     if (population) {
-      this.state.population = population[0]["Population"];
+      this.state.population = Number(population[0].Population);
+
+      if (!this.state.explicitPolulation) {
+        this.state.susceptiplePop = Math.round(this.state.population * this.state.proportion);
+      }
     }
 
     for (const trace of traces) {
@@ -126,74 +158,77 @@ class App extends React.Component {
       trace.y = [];
     }
 
-    const cases = [];
     for (const header of this.covidHeader.slice(4)) {
       let casesSum = 0;
       let deathsSum = 0;
       let recoveredSum = 0;
 
+      // Get formatted date from header dates
       const m = moment(header, "MM/DD/YY");
       const formattedDate = m.format("YYYY-MM-DD");
-      for (const trace of traces.slice(0, 4)) {
-        trace.x.push(formattedDate);
-      }
 
-      let casesHere = 0;
+      // Sum all cases, deaths and recovered for current country
       for (let j = 0; j < filteredCovidCases.length; j++){
-        casesHere += parseInt(filteredCovidCases[j][header]);
-
         casesSum += parseInt(filteredCovidCases[j][header]);
         deathsSum += parseInt(filteredCovidDeaths[j][header]);
         recoveredSum += parseInt(filteredCovidRecovered[j][header]);
       }
 
-      cases.push(casesHere);
+      if (casesSum > 0) {
+        // Set x-axis to be these formatted dates
+        for (const trace of traces.slice(0, 4)) {
+          trace.x.push(formattedDate);
+        }
 
-      traces[0].y.push(casesSum);
-      traces[1].y.push(deathsSum);
-      traces[2].y.push(recoveredSum);
-      traces[3].y.push(recoveredSum + deathsSum);
+        // Set all traces
+        traces[0].y.push(casesSum - recoveredSum - deathsSum);
+        traces[1].y.push(deathsSum);
+        traces[2].y.push(recoveredSum);
+        traces[3].y.push(recoveredSum + deathsSum);
+      }
     }
-
-    const pop = Number(population[0].Population);
 
     const t0 = traces[0];
     const t3 = traces[3];
 
-    const lrCases = t0.y[t0.y.length - 1];
-    const lrRes = t3.y[t3.y.length - 1];
+    const S0 = this.state.susceptiplePop - t0.y[0] - t3.y[0];
+    const I0 = t0.y[0];
+    const R0 = t3.y[0];
+  
+    console.log([S0, I0, R0]);
 
-    const S0 = pop - lrCases;
-    const R0 = lrRes;
-    const I0 = pop - (S0 + R0);
-    
-    const init = [S0, I0, R0].map(x => x / pop);
+    const init = [S0, I0, R0].map(x => x / this.state.susceptiplePop);
+
+    console.log(init);
     
     const sol = simulate(sir(), 0, init, 1, 365);
     console.log(sol);
 
     const getDate = x => {
-      const start = new Date(t0.x[t0.x.length - 1]);
+      const start = new Date(t0.x[0]);
       const date = new Date(start.getTime() + x * (24 * 60 * 60 * 1000));
       const m = moment(date.toISOString());
       return m.format("YYYY-MM-DD");
     };
 
     const i0 = traces.indexOf(traces.find(trace => trace.name === "Susceptible"));
+
     sol.y.forEach((ys, x) => {
-      for (let i = i0+1; i < traces.length; i++) {
+      for (let i = i0; i < traces.length; i++) {
         traces[i].x.push(getDate(x));
-        traces[i].y.push(Math.round(ys[i - i0] * pop));
+        traces[i].y.push(Math.round(ys[i - i0] * this.state.susceptiplePop));
       }
     });
 
     console.log(traces);
 
+    // Set title and revision status
     layout.title = `COVID-19 ${this.state.country}`;
     await this.setState({ revision: this.state.revision + 1 });
     layout.datarevision = this.state.revision + 1;
   }
 
+  // Create select items for countries/regions
   createSelectItems() {
     let items = [];
     
@@ -204,11 +239,44 @@ class App extends React.Component {
     return items;
   }
 
+  // Handle state change in country/region
   handleCountryChange(event) {
-    this.setState({country: event.target.value});
+    this.setState({
+      country: event.target.value,
+      explicitPolulation: false
+    });
   }
 
+  // Handle a change submission of change in country/region
   handleCountrySubmit(event) {
+    this.setCountryTraces();
+    event.preventDefault();
+  }
+
+  // Handle state change for proportion susceptible
+  handleProportionChange(event) {
+    this.setState({
+      proportion: event.target.value,
+      explicitPolulation: false
+    });
+  }
+
+  // Handle a change submission of proportion susceptible
+  handleProportionSubmit(event) {
+    this.setCountryTraces();
+    event.preventDefault();
+  }
+
+  // Handle state change for population susceptible
+  handleExplicitPopChange(event) {
+    this.setState({
+      susceptiplePop: event.target.value,
+      explicitPolulation: true
+    });
+  }
+
+  // Handle a change submission of population susceptible
+  handleExplicitPopSubmit(event) {
     this.setCountryTraces();
     event.preventDefault();
   }
@@ -221,15 +289,52 @@ class App extends React.Component {
           layout={this.state.layout}
           revision={this.state.revision}
         />
-        <form onSubmit={this.handleCountrySubmit}>
-          <label>
-            Select a country:
-            <select name="country" value={this.state.country} onChange={this.handleCountryChange}>
+        <Form onSubmit={this.handleCountrySubmit}>
+          <Form.Group as={Col} md="4">
+            <Form.Label>Select a country:</Form.Label>
+            <Form.Control as="select" value={this.state.country} onChange={this.handleCountryChange}>
               {this.createSelectItems()}
-            </select>
-          </label>
-          <input type="submit" value="Submit"/>
-        </form>
+            </Form.Control>
+            <br />
+            <Button variant="primary" type="submit">
+              Submit
+            </Button>
+          </Form.Group>
+        </Form>
+        <Form onSubmit={this.handleProportionSubmit}>
+          <Form.Group as={Col} md="4">
+            <Form.Label>Proportion of population that is susceptible:</Form.Label>
+            <Form.Control 
+              type="number"
+              min={0}
+              max={1}
+              step={0.0001}
+              value={this.state.proportion}
+              onChange = {this.handleProportionChange}
+              />
+            <br />
+            <Button variant="primary" type="submit">
+              Submit
+            </Button>
+          </Form.Group>
+        </Form>
+        <Form onSubmit={this.handleExplicitPopSubmit}>
+          <Form.Group as={Col} md="4">
+            <Form.Label>Susceptible Population</Form.Label>
+            <Form.Control 
+              type="number"
+              min={0}
+              max={this.state.population}
+              step={1}
+              value={this.state.susceptiplePop}
+              onChange = {this.handleExplicitPopChange}
+              />
+            <br />
+            <Button variant="primary" type="submit">
+              Submit
+            </Button>
+          </Form.Group>
+        </Form>
       </div>
     );
   }
