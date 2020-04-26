@@ -7,18 +7,44 @@ import Form from 'react-bootstrap/Form';
 import Button from 'react-bootstrap/Button';
 import Col from 'react-bootstrap/Col';
 import { simulate, sir } from './sir';
+import fmin from 'fmin';
 
 const Plot = createPlotlyComponent(Plotly);
+
+let actualI = [];
+let actualR = [];
+let initial = [];
+let pop = 0;
 
 // Root Mean Square Error function
 function RMSE(predicted, actual) {
   let total = 0;
 
   for (let i = 0; i < actual.length; i++) {
-    total = Math.pow(predicted[i] - actual[i], 2);
+    total += Math.pow(predicted[i] - actual[i], 2);
   }
 
   return Math.sqrt(total / actual.length);
+}
+
+// Function to fit beta and gamma to the data
+function loss(X) {
+  const alpha = 0.5;
+  const beta = X[0];
+  const gamma = X[1];
+  let predictedI = [];
+  let predictedR = [];
+  const sol = simulate(sir(beta, gamma), 0, [...initial], 1, 365);
+
+  for (let i = 0; i < actualI.length; i++) {
+    predictedI.push(Math.round(sol.y[i][1] * pop));
+    predictedR.push(Math.round(sol.y[i][2] * pop));
+  }
+
+  const t1 = RMSE(predictedI, actualI);
+  const t2 = RMSE(predictedR, actualR);
+
+  return alpha * t1 + (1 - alpha) * t2;
 }
 
 // Get data from CSV
@@ -84,10 +110,10 @@ class App extends React.Component {
       population: 0,
       susceptiplePop: 0,
       traces: [
-        newTrace("Cases", "purple"),
-        newTrace("Deaths", "orange"),
-        newTrace("Recovered", "lime"),
-        newTrace("Recovered + Deaths", "grey"),
+        newTrace("Real Cases", "purple"),
+        newTrace("Real Deaths", "orange"),
+        newTrace("Real Recovered", "lime"),
+        newTrace("Real Recovered + Deaths", "grey"),
         newTrace("Susceptible", "blue"),
         newTrace("Infected", "red"),
         newTrace("Recovered", "green"),
@@ -143,8 +169,7 @@ class App extends React.Component {
     const filteredCovidRecovered = this.covidRecovered.filter(filterCountry, this.state.country);
     const population = this.populationData.filter(filterCountry, this.state.country);
 
-    console.log(population);
-
+    // Get population data
     if (population) {
       this.state.population = Number(population[0].Population);
 
@@ -153,11 +178,13 @@ class App extends React.Component {
       }
     }
 
+    // Clear traces
     for (const trace of traces) {
       trace.x = [];
       trace.y = [];
     }
 
+    // Set traces
     for (const header of this.covidHeader.slice(4)) {
       let casesSum = 0;
       let deathsSum = 0;
@@ -169,18 +196,25 @@ class App extends React.Component {
 
       // Sum all cases, deaths and recovered for current country
       for (let j = 0; j < filteredCovidCases.length; j++){
-        casesSum += parseInt(filteredCovidCases[j][header]);
-        deathsSum += parseInt(filteredCovidDeaths[j][header]);
-        recoveredSum += parseInt(filteredCovidRecovered[j][header]);
+        if (filteredCovidCases[j] && filteredCovidCases[j][header]) {
+          casesSum += parseInt(filteredCovidCases[j][header]);
+        }
+
+        if (filteredCovidDeaths[j] && filteredCovidCases[j][header]) {
+          deathsSum += parseInt(filteredCovidDeaths[j][header]);
+        }
+
+        if (filteredCovidRecovered[j] && filteredCovidCases[j][header]) {
+          recoveredSum += parseInt(filteredCovidRecovered[j][header]);
+        }
       }
 
+
+      // Set all traces from when cases show up in this region
       if (casesSum > 0) {
-        // Set x-axis to be these formatted dates
         for (const trace of traces.slice(0, 4)) {
           trace.x.push(formattedDate);
         }
-
-        // Set all traces
         traces[0].y.push(casesSum - recoveredSum - deathsSum);
         traces[1].y.push(deathsSum);
         traces[2].y.push(recoveredSum);
@@ -190,20 +224,25 @@ class App extends React.Component {
 
     const t0 = traces[0];
     const t3 = traces[3];
-
+    const i0 = traces.indexOf(traces.find(trace => trace.name === "Susceptible"));
     const S0 = this.state.susceptiplePop - t0.y[0] - t3.y[0];
     const I0 = t0.y[0];
     const R0 = t3.y[0];
-  
-    console.log([S0, I0, R0]);
-
     const init = [S0, I0, R0].map(x => x / this.state.susceptiplePop);
 
-    console.log(init);
-    
-    const sol = simulate(sir(), 0, init, 1, 365);
-    console.log(sol);
+    // Setup for curve fitting
+    initial = [...init];
+    actualI = [...t0.y];
+    actualR = [...t3.y];
+    pop = this.state.susceptiplePop;
 
+    // Get optimal values for beta and gamma and simulate SIR accordingly
+    let optimal = fmin.nelderMead(loss, [0.15, 0.05]);
+    const beta = optimal.x[0];
+    const gamma = optimal.x[1];
+    const sol = simulate(sir(beta, gamma), 0, init, 1, 365);
+
+    // Get date from date offset
     const getDate = x => {
       const start = new Date(t0.x[0]);
       const date = new Date(start.getTime() + x * (24 * 60 * 60 * 1000));
@@ -211,16 +250,13 @@ class App extends React.Component {
       return m.format("YYYY-MM-DD");
     };
 
-    const i0 = traces.indexOf(traces.find(trace => trace.name === "Susceptible"));
-
+    // Set SIR traces
     sol.y.forEach((ys, x) => {
       for (let i = i0; i < traces.length; i++) {
         traces[i].x.push(getDate(x));
         traces[i].y.push(Math.round(ys[i - i0] * this.state.susceptiplePop));
       }
     });
-
-    console.log(traces);
 
     // Set title and revision status
     layout.title = `COVID-19 ${this.state.country}`;
@@ -320,7 +356,7 @@ class App extends React.Component {
         </Form>
         <Form onSubmit={this.handleExplicitPopSubmit}>
           <Form.Group as={Col} md="4">
-            <Form.Label>Susceptible Population</Form.Label>
+            <Form.Label>Susceptible Population:</Form.Label>
             <Form.Control 
               type="number"
               min={0}
